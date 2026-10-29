@@ -43,4 +43,4 @@ Goal: an offline Rust implementation of key, BPM/beat, and energy/cue analysis o
 - Keep any improved model explicitly separate from the vendor-compatibility model.
 - Run complete offline qualification on macOS arm64 and Linux arm64/x86_64, then publish only the exercised claims.
 
-Current work begins at the reference, numerical and scheduling boundaries. The existing model and heuristic extractor are retained as an explicitly experimental baseline, not as a target to defend.
+Current execution has produced standalone native-style key, version-0 BPM and local energy candidates, a hash-bound fixed-PCM oracle, scheduling/cue transforms, and macOS/Linux arm64 runtime evidence. The next gates are remaining numerical/edge mismatches, actual app waveform/cue qualification, canonical request capture, authoritative model training, and the independent platform/holdout suites. The public classifier remains an explicitly experimental baseline; component matches do not promote it to a compatible detector.

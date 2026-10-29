@@ -13,9 +13,12 @@ Research-only offline key predictions from the current experimental feature impl
 - Runtime independently normalizes each bank; equivalence of that transformation to the reference decision is unproved.
 - Training labels came from queries using an approximate local feature path, not a fully qualified native application boundary.
 - The existing artifact lacks a complete dataset/build/split lineage receipt. Historical evaluation is not an independent accepted benchmark.
-- Training used different numeric precision from Rust inference; decision-boundary/tie behavior is not fully qualified.
-- No adequate no-key/short/silent/error qualification is established.
+- Training used different numeric precision from Rust inference. Runtime now selects the first tied class consistently with the training runtime; full decision-boundary numerics remain unqualified.
+- Runtime requires exactly 352→64→25 finite coefficients and rejects malformed models. Unused all-zero linear fallback arrays were removed without changing learned coefficients; no fallback classifier remains.
+- Empty, all-zero, negative or nonfinite feature inputs are refused explicitly. This prevents confident guesses for silence, but does not qualify the remaining no-key/short/error domain.
 
 The CLI's softmax `confidence` is an uncalibrated model score. It must not be interpreted as the probability of a musically correct answer or the original application's confidence.
+
+The newly reconstructed native-style feature pipeline is **not** silently fed to this historical model. An accepted classifier needs to be trained and evaluated on the authoritative representation with complete dataset lineage.
 
 A future accepted model requires authoritative teacher inputs, content-identified and disjoint recording groups, immutable preprocessing/class order, numerical export checks and a sealed independent test result. Until then, no 100% or near-100% claim is made.

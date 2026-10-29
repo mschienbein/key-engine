@@ -90,28 +90,45 @@ impl CamelotKey {
     }
 }
 
-/// Experimental linear or one-hidden-layer model coefficients.
+const HIDDEN: usize = 64;
+const CLASSES: usize = 25;
+
+/// Coefficients for the current experimental 352 -> 64 -> 25 model.
+///
+/// This schema deliberately has no legacy linear-model fallback.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Weights {
-    /// `[classes][FEATURES]`, one row per output class.
-    pub w: Vec<Vec<f32>>,
-    /// One bias per output class.
-    pub b: Vec<f32>,
-    /// Optional hidden layer: `[hidden][FEATURES]` and `[hidden]`, applied with `tanh` when present.
-    #[serde(default)]
-    pub w1: Option<Vec<Vec<f32>>>,
-    #[serde(default)]
-    pub b1: Option<Vec<f32>>,
-    /// `[classes][hidden]`, used with the hidden layer.
-    #[serde(default)]
-    pub w2: Option<Vec<Vec<f32>>>,
-    #[serde(default)]
-    pub b2: Option<Vec<f32>>,
+    w1: Vec<Vec<f32>>,
+    b1: Vec<f32>,
+    w2: Vec<Vec<f32>>,
+    b2: Vec<f32>,
 }
 
 impl Weights {
     pub fn from_json(text: &str) -> Result<Self, String> {
-        serde_json::from_str(text).map_err(|e| e.to_string())
+        let weights: Self = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        weights.validate()?;
+        Ok(weights)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        let shapes_match = self.w1.len() == HIDDEN
+            && self.w1.iter().all(|row| row.len() == FEATURES)
+            && self.b1.len() == HIDDEN
+            && self.w2.len() == CLASSES
+            && self.w2.iter().all(|row| row.len() == HIDDEN)
+            && self.b2.len() == CLASSES;
+        if !shapes_match {
+            return Err("model dimensions must be 352 -> 64 -> 25".into());
+        }
+        if !self.w1.iter().flatten().chain(&self.b1)
+            .chain(self.w2.iter().flatten()).chain(&self.b2)
+            .all(|value| value.is_finite())
+        {
+            return Err("model coefficients must be finite".into());
+        }
+        Ok(())
     }
 }
 
@@ -120,82 +137,141 @@ impl Weights {
 pub struct KeyEstimate {
     /// Best key, or `None` for the "no key" class.
     pub key: Option<CamelotKey>,
-    /// Confidence of the best key.
+    /// Uncalibrated local softmax score, not vendor confidence.
     pub confidence: f32,
     /// Per-class scores after softmax; index matches [`CamelotKey::class_index`].
     pub scores: [f32; 25],
 }
 
-/// Local stand-in for the vendor analysis service.
+/// Validated evaluator for the experimental local model, not a vendor-equivalence claim.
 pub struct KeyClassifier {
     weights: Weights,
 }
 
 impl KeyClassifier {
-    pub fn new(weights: Weights) -> Self {
-        Self { weights }
+    pub fn new(weights: Weights) -> Result<Self, String> {
+        weights.validate()?;
+        Ok(Self { weights })
     }
 
-    /// Classifier shipped with the crate.
-    pub fn bundled() -> Self {
-        Self::new(Weights::from_json(include_str!("weights.json")).expect("bundled weights"))
+    pub fn bundled() -> Result<Self, String> {
+        Self::new(Weights::from_json(include_str!("weights.json"))?)
     }
 
-    pub fn classify(&self, features: &[f64; FEATURES]) -> KeyEstimate {
-        // Banks hold different numbers of analysis windows, so normalise each separately.
-        let mut x = Vec::with_capacity(FEATURES);
-        for bank in features.chunks(crate::feature::BINS) {
+    pub fn classify(&self, features: &[f64; FEATURES]) -> Result<KeyEstimate, String> {
+        if features.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err("model input must contain finite, nonnegative features".into());
+        }
+        if features.iter().all(|v| *v == 0.0) {
+            return Err("experimental model is not qualified for empty or silent features".into());
+        }
+
+        // Retained experimental preprocessing; this is not an established vendor invariance.
+        let mut x = [0.0f32; FEATURES];
+        for (bank, output) in features.chunks(crate::feature::BINS)
+            .zip(x.chunks_mut(crate::feature::BINS))
+        {
             let sum: f64 = bank.iter().sum();
-            let scale = if sum > 0.0 { 1.0 / sum } else { 0.0 };
-            x.extend(bank.iter().map(|&v| (v * scale) as f32));
-        }
-
-        let logits: Vec<f32> = match (&self.weights.w1, &self.weights.b1, &self.weights.w2, &self.weights.b2) {
-            (Some(w1), Some(b1), Some(w2), Some(b2)) => {
-                let hidden: Vec<f32> = w1
-                    .iter()
-                    .zip(b1.iter())
-                    .map(|(row, bias)| {
-                        let z: f32 = row.iter().zip(x.iter()).map(|(w, v)| w * v).sum();
-                        (z + bias).tanh()
-                    })
-                    .collect();
-                w2.iter()
-                    .zip(b2.iter())
-                    .map(|(row, bias)| row.iter().zip(hidden.iter()).map(|(w, v)| w * v).sum::<f32>() + bias)
-                    .collect()
+            if !sum.is_finite() {
+                return Err("model input bank sum overflowed".into());
             }
-            _ => self
-                .weights
-                .w
-                .iter()
-                .zip(self.weights.b.iter())
-                .map(|(row, bias)| row.iter().zip(x.iter()).map(|(w, v)| w * v).sum::<f32>() + bias)
-                .collect(),
-        };
+            if sum > 0.0 {
+                for (value, normalized) in bank.iter().zip(output) {
+                    *normalized = (value / sum) as f32;
+                }
+            }
+        }
 
-        let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let mut scores = [0.0f32; 25];
+        let mut hidden = [0.0f32; HIDDEN];
+        for (i, value) in hidden.iter_mut().enumerate() {
+            let z: f32 = self.weights.w1[i].iter().zip(&x).map(|(w, v)| w * v).sum();
+            let z = z + self.weights.b1[i];
+            if !z.is_finite() {
+                return Err("model hidden activation overflowed".into());
+            }
+            *value = z.tanh();
+        }
+
+        let mut scores = [0.0f32; CLASSES];
+        for (i, value) in scores.iter_mut().enumerate() {
+            *value = self.weights.w2[i].iter().zip(&hidden).map(|(w, v)| w * v).sum::<f32>()
+                + self.weights.b2[i];
+            if !value.is_finite() {
+                return Err("model output activation overflowed".into());
+            }
+        }
+        let max = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let mut total = 0.0f32;
-        for (i, z) in logits.iter().enumerate() {
-            let e = (z - max).exp();
-            scores[i] = e;
-            total += e;
+        for score in &mut scores {
+            *score = (*score - max).exp();
+            total += *score;
         }
-        for s in scores.iter_mut() {
-            *s /= total;
+        for score in &mut scores {
+            *score /= total;
         }
-
-        let (best, &confidence) = scores
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .expect("non-empty scores");
-
-        KeyEstimate {
+        // NumPy argmax selects the first maximum; preserve that export/runtime boundary.
+        let mut best = 0;
+        for i in 1..CLASSES {
+            if scores[i] > scores[best] {
+                best = i;
+            }
+        }
+        Ok(KeyEstimate {
             key: CamelotKey::from_class_index(best),
-            confidence,
+            confidence: scores[best],
             scores,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn coefficients() -> Weights {
+        Weights {
+            w1: vec![vec![0.0; FEATURES]; HIDDEN],
+            b1: vec![0.0; HIDDEN],
+            w2: vec![vec![0.0; HIDDEN]; CLASSES],
+            b2: vec![0.0; CLASSES],
         }
+    }
+
+    #[test]
+    fn rejects_truncated_model_instead_of_truncating_dot_product() {
+        let mut weights = coefficients();
+        weights.w1[0].pop();
+        assert!(KeyClassifier::new(weights).is_err());
+    }
+
+    #[test]
+    fn rejects_nonfinite_coefficients() {
+        let mut weights = coefficients();
+        weights.b2[3] = f32::INFINITY;
+        assert!(KeyClassifier::new(weights).is_err());
+    }
+
+    #[test]
+    fn malformed_hidden_model_cannot_select_a_linear_fallback() {
+        assert!(Weights::from_json(r#"{"w1":[],"b1":[],"w2":[],"b2":[],"w":[],"b":[]}"#).is_err());
+    }
+
+    #[test]
+    fn empty_and_invalid_features_do_not_produce_a_confident_key() {
+        let model = KeyClassifier::new(coefficients()).unwrap();
+        assert!(model.classify(&[0.0; FEATURES]).is_err());
+        let mut features = [1.0; FEATURES];
+        features[0] = f64::NAN;
+        assert!(model.classify(&features).is_err());
+        features[0] = -1.0;
+        assert!(model.classify(&features).is_err());
+    }
+
+    #[test]
+    fn ties_select_first_class_like_training_runtime() {
+        let model = KeyClassifier::new(coefficients()).unwrap();
+        let estimate = model.classify(&[1.0; FEATURES]).unwrap();
+        assert_eq!(estimate.key, CamelotKey::from_class_index(0));
+        assert!(estimate.scores.iter().all(|score| (*score - 0.04).abs() < 1e-7));
     }
 }

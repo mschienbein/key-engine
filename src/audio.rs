@@ -66,7 +66,7 @@ pub fn decode(path: &Path) -> Result<Decoded, String> {
     loop {
         let packet = match format.next_packet() {
             Ok(p) => p,
-            Err(symphonia::core::errors::Error::IoError(ref e))
+            Err(symphonia::core::errors::Error::IoError(e))
                 if e.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
                 break;
@@ -79,17 +79,25 @@ pub fn decode(path: &Path) -> Result<Decoded, String> {
         match decoder.decode(&packet) {
             Ok(buffer) => {
                 let spec = *buffer.spec();
+                let actual_channels = spec.channels.count();
+                if actual_channels == 0 || spec.rate == 0 {
+                    return Err("decoded audio has an invalid channel count or sample rate".into());
+                }
+                if !interleaved.is_empty()
+                    && (actual_channels != channels || spec.rate != source_rate)
+                {
+                    return Err("midstream audio format changes are not supported".into());
+                }
                 channels = spec.channels.count();
                 source_rate = spec.rate;
                 push_buffer(&buffer, &mut interleaved);
             }
-            Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
             Err(e) => return Err(format!("decode: {e}")),
         }
     }
 
-    if channels == 0 {
-        channels = 1;
+    if channels == 0 || interleaved.is_empty() {
+        return Err("no audio samples were decoded".into());
     }
     if source_rate != ANALYSIS_RATE {
         interleaved = resample(&interleaved, channels, source_rate, ANALYSIS_RATE);
@@ -135,8 +143,8 @@ fn push_buffer(buffer: &AudioBufferRef<'_>, out: &mut Vec<f32>) {
     }
 }
 
-/// Linear resampling. Adequate for the 48 kHz -> 44.1 kHz case; replace with a windowed-sinc
-/// resampler if parity work needs it.
+/// Experimental linear resampling. This does not reproduce the reference converter and must not
+/// be used as evidence of cross-decoder or native feature parity.
 fn resample(input: &[f32], channels: usize, from: u32, to: u32) -> Vec<f32> {
     if from == to || input.is_empty() {
         return input.to_vec();

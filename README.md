@@ -6,7 +6,7 @@ An experimental, offline Rust CLI for musical analysis. The project is working t
 2. **BPM and beat detection**
 3. **Energy levels and cue points**
 
-**This is not a 1:1 replacement.** The current snapshot runs an experimental key detector only. Its feature extractor and locally trained classifier are unqualified; BPM, energy and cue analysis are being reconstructed. Do not use its output as verified metadata or overwrite an existing music library with it.
+**This is not a 1:1 replacement.** The public CLI still runs the experimental key detector. Separate native-style key, BPM and local energy implementations now run in the research tree, but full app refinement, server decisions and independent accuracy remain unqualified. Do not use this snapshot to overwrite trusted music-library metadata.
 
 This project is independent and is not affiliated with, endorsed by, or supplied by Mixed In Key or zplane. No proprietary application binaries, raw decompilation, private music or credentials are included.
 
@@ -22,20 +22,23 @@ cargo build --release --locked
 
 Analysis does not contact a remote service, require an account code, or write tags. Decoding uses Symphonia. The package enables WAV/AIFF PCM, FLAC, MP3 and AAC/M4A support, but native-decoder equivalence across those formats is **not** established. The current linear resampler is not a faithful reconstruction of the reference converter.
 
-The emitted `confidence` is an uncalibrated local model score, not a proven probability of musical correctness. Prefer JSON for feature inspection: textual bank labels in this initial snapshot remain a known limitation.
+The emitted `confidence` is an uncalibrated local model score, not a probability of musical correctness. Feature tables use bank-relative pitch labels. Model shape and coefficients are validated; empty/silent features are refused rather than assigned a confident key. JSON batch output retains a result or explicit error for each input, and a failed input produces a nonzero exit status.
 
 ## Status
 
 | Component | Current status |
 |---|---|
-| Offline key CLI | Experimental implementation; no accepted parity score |
-| Native key feature pipeline | Reconstruction in progress; current time-window/peak heuristics differ from the reference |
-| BPM and beat detection | Native pipeline mapped; Rust implementation in progress |
-| Energy and cue points | Local/service boundaries mapped; offline final outputs not implemented |
-| macOS | Development host; qualification suite not passed |
-| Linux | Portability target; no qualified runtime result yet |
+| Offline key CLI | Experimental baseline with strict model/input errors; no accepted parity score |
+| Native key feature pipeline | Separate streaming reconstruction exercised against exact native feature words; not connected to the old classifier |
+| BPM and beat detection | Complete version-0 research pipeline exercised; short-FFT and indeterminate-state cases remain open |
+| Energy and cue points | Local energy features exercised; actual app waveform/cue refiners are awaiting native qualification; final service decisions remain opaque |
+| macOS arm64 | Research tests and fixed-PCM native comparisons exercised; full acceptance not passed |
+| Linux arm64 | Offline research build and runtime exercised; numerical mismatches remain tracked |
+| Linux x86_64 | Planned; not yet runtime-qualified |
 
 Earlier exploratory agreement percentages are not release results. Their data identities and evaluation splits were insufficient for a compatibility claim. See [verification boundaries](docs/VERIFICATION.md) and the [model card](docs/MODEL_CARD.md).
+
+The [verification record](docs/VERIFICATION.md#development-checkpoint) distinguishes exact component matches from refused cases and unresolved application behavior. These measurements are development evidence, not a 100% product claim.
 
 ## Roadmap and acceptance
 

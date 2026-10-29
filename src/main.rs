@@ -1,3 +1,4 @@
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -49,20 +50,26 @@ fn features(path: &PathBuf, json: bool) -> ExitCode {
     };
     let vector = key_features(&decoded.samples, decoded.channels);
 
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({ "file": path.display().to_string(), "features": vector.to_vec() })
-        );
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    let result = if json {
+        writeln!(output, "{}", serde_json::json!({
+            "file": path.display().to_string(), "features": vector.to_vec()
+        }))
     } else {
-        let mut text = String::new();
-        for (i, v) in vector.iter().enumerate() {
-            let hz = 27.5 * 2f64.powf(i as f64 / 12.0);
-            text.push_str(&format!("{i:2}  {hz:8.2} Hz  {v:.6}\n"));
+        let mut result = Ok(());
+        for (i, value) in vector.iter().enumerate() {
+            let bin = i % BINS;
+            let bank = i / BINS;
+            let hz = 27.5 * 2f64.powf(bin as f64 / 12.0);
+            if let Err(error) = writeln!(output, "bank {bank}  bin {bin:2}  {hz:8.2} Hz  {value:.6}") {
+                result = Err(error);
+                break;
+            }
         }
-        print!("{text}");
-    }
-    ExitCode::SUCCESS
+        result
+    };
+    output_status(result)
 }
 
 fn analyze(paths: &[PathBuf], json: bool) -> ExitCode {
@@ -70,9 +77,17 @@ fn analyze(paths: &[PathBuf], json: bool) -> ExitCode {
         eprintln!("no files given");
         return ExitCode::FAILURE;
     }
-    let classifier = KeyClassifier::bundled();
+    let classifier = match KeyClassifier::bundled() {
+        Ok(model) => model,
+        Err(error) => {
+            eprintln!("invalid experimental model: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let mut failures = 0usize;
     let mut rows = Vec::new();
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
 
     for path in paths {
         let decoded = match audio::decode(path) {
@@ -80,11 +95,24 @@ fn analyze(paths: &[PathBuf], json: bool) -> ExitCode {
             Err(e) => {
                 eprintln!("{}: {e}", path.display());
                 failures += 1;
+                if json {
+                    rows.push(serde_json::json!({ "file": path.display().to_string(), "error": e }));
+                }
                 continue;
             }
         };
         let features = key_features(&decoded.samples, decoded.channels);
-        let estimate = classifier.classify(&features);
+        let estimate = match classifier.classify(&features) {
+            Ok(estimate) => estimate,
+            Err(error) => {
+                eprintln!("{}: {error}", path.display());
+                failures += 1;
+                if json {
+                    rows.push(serde_json::json!({ "file": path.display().to_string(), "error": error }));
+                }
+                continue;
+            }
+        };
         let (label, name, confidence) = match estimate.key {
             Some(k) => (k.label(), k.name(), estimate.confidence),
             None => ("0".to_string(), "no key".to_string(), estimate.confidence),
@@ -98,15 +126,27 @@ fn analyze(paths: &[PathBuf], json: bool) -> ExitCode {
                 "seconds": decoded.frames as f64 / audio::ANALYSIS_RATE as f64,
             }));
         } else {
-            println!("{label:>3}  {confidence:5.3}  {name:<10}  {}", path.display());
+            if let Err(error) = writeln!(output, "{label:>3}  {confidence:5.3}  {name:<10}  {}", path.display()) {
+                return output_status(Err(error));
+            }
         }
     }
 
     if json {
-        println!("{}", serde_json::Value::Array(rows));
+        if let Err(error) = writeln!(output, "{}", serde_json::Value::Array(rows)) {
+            return output_status(Err(error));
+        }
     }
     if failures > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS }
 }
 
-#[allow(dead_code)]
-const _: usize = BINS;
+fn output_status(result: io::Result<()>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("output: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
