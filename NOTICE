@@ -1,0 +1,14 @@
+Key Engine is an independent experimental implementation. Mixed In Key and
+zplane names identify reference products and do not imply affiliation,
+endorsement, or ownership of their trademarks or proprietary code.
+
+This repository does not distribute the reference application, frameworks,
+raw decompiler output, original server model, private audio corpus, or
+credentials. Its bundled model is locally trained and unqualified; see
+docs/MODEL_CARD.md.
+
+Project-authored source is MIT-licensed. Rust dependencies retain their own
+licenses. In particular Symphonia is distributed under MPL-2.0; consult the
+exact dependency source and license accompanying the locked version before
+redistributing compiled packages. The project's license does not relicense
+dependencies or confer rights in external reference artifacts.
