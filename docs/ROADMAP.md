@@ -1,46 +1,51 @@
 # Reconstruction roadmap
 
-Goal: an offline Rust implementation of key, BPM/beat, and energy/cue analysis on macOS and Linux. No milestone is accepted merely because code exists.
+**Status: 30 October 2026.** The public code is the superseded experimental CLI. The current reconstruction is developed privately and is not published, pending licensing review. This roadmap describes remaining work, not features available in this checkout or a promised release date.
 
-## 1. Trustworthy reference boundary
+## Measured work already completed
 
-- Freeze source, reference version/settings, input identities and result receipts.
-- Reproduce actual app scheduling and request data, including dynamic feature-bank length and error cases.
-- Keep account handling and raw references outside the public distribution.
-- Validate repeated native results before claiming a deterministic target.
+- Local decoding, tested sample-rate conversion, BPM/beats, app refinement, scheduling, key/energy features and cue pre-analysis have exact matches on declared generated and real-file boundaries.
+- A frozen offline snapshot passed the macOS arm64, Linux arm64 and Linux x86_64 qualification matrix. The final snapshot with all later changes passed every reachable check on the same platforms; re-running the real MP3/AAC and high-resolution file comparisons with that final build is pending.
+- Learned key and energy/cue decisions were integrated and evaluated on two sealed held-out sets. They are approximations, not recovered vendor models or service parity.
+- The final offline CLI and a separate MIK 11 service sample were evaluated against GiantSteps annotations.
+- Optional vendor-service integration has stored-exchange replay and limited live-smoke evidence; it is not an offline reconstruction of the server.
 
-## 2. Signal, timing and native key features
+The [verification record](VERIFICATION.md) gives the counts, populations and exceptions. These completed measurements supersede the earlier plan to obtain the first app-function captures and train the first replacement models.
 
-- Reconstruct decoder offsets, channel summation and resampling.
-- Reproduce paired-frame FFT arithmetic, temporal partial association, tuning and weighted time-range reduction.
-- Implement the app's four-beat coordinate schedule with exact native rounding and boundary behavior.
-- Require exact raw checkpoints on fixed PCM and captured schedules; do not replace missing math with a tuned heuristic.
+## 1. Licensing and public-distribution review
 
-## 3. BPM and beats
+- Complete licensing and provenance review before distributing reconstructed code, newly learned weights or research-derived assets.
+- Keep proprietary binaries, decompilation, audio, service captures and credentials out of the public distribution.
+- Distinguish the existing MIT-licensed public source from material that has not been cleared for release. A documentation update is not a license decision or an implementation release.
 
-- Implement the actual selected native tempo algorithm and its onset, histogram and beat-tracking dependencies.
-- Preserve raw tempo, waveform-refined tempo, beat-grid, displayed precision and stored values as separate observables.
-- Cover pickups, silence, short files, tempo changes, half/double decisions and failed estimates.
+## 2. Declared input and numerical-profile coverage
 
-## 4. Energy and cues
+- Broaden real-file coverage beyond the measured format/rate/channel combinations. In particular, the real AAC comparison covers 44.1 kHz stereo, not real mono or resampled AAC.
+- Preserve explicit malformed-input, empty/short-input and multichannel outcomes. Four measured six-channel cases did not provide a safely defined native result; do not invent one.
+- Keep native allocator-dependent numerical behavior visible. A deterministic selected profile must not be called the unique application answer on sensitive inputs.
+- Extend numerical and caller coverage without promoting a bounded corpus to an exhaustive arithmetic claim. Additional profile support or sensitivity detection needs its own evidence, not per-file exceptions or guessed majority outcomes.
 
-- Reconstruct local energy features, tempo-derived segment boundaries and cue-preanalysis scores.
-- Preserve response types, cue ordering/times and post-response beat/segment adjustments.
-- Establish an equivalent local decision implementation or independently qualify a learned replacement where the original decision is server-side.
-- Never substitute generic loudness labels or evenly spaced cues and call them compatible.
+## 3. Remaining offline decision gaps
 
-## 5. Corpus and model
+- Improve learned key, energy and cue agreement while retaining the measured **85.2% / 86.2%** held-out key-label results and **0%** complete-decision identity as historical facts.
+- Address unreproduced confidence, no-key, secondary-key and single-note behavior, and unqualified short key vectors. Do not substitute confident guesses for missing reference behavior.
+- Treat energy levels, overall energy, later cue selection/count and cue levels as learned decisions. Conditional timing/merge-rule matches are not complete output equality.
+- Preserve recording-family grouping and dataset/model/preprocessing identities. Once an evaluation set informs changes, it is development data; any new acceptance claim needs a fresh independent holdout.
 
-- Identify unique recordings and version families before immutable train/validation/holdout splits.
-- Label authoritative native inputs rather than an unverified approximate feature representation.
-- Bind every model to its data, preprocessing and training identities; validate exported inference numerics in Rust.
-- Close every development mismatch and require zero mismatches on a genuinely untouched holdout. A shortfall remains a failed gate.
+## 4. Integrated qualification after changes
 
-## 6. Independent accuracy and release
+- Re-freeze the complete implementation and models before extending claims beyond the qualified offline snapshot.
+- Re-exercise every declared platform and affected boundary after decoder-recovery, numerical-profile, model or service-integration changes. Component-only evidence does not automatically qualify the merged implementation.
+- Keep offline predictions and vendor-service results distinguishable. Test network-disabled operation independently from any separately authorized live use.
+- Preserve failed runs, refusals and original denominators. A high average score or a rounded value cannot replace a zero-mismatch compatibility gate.
 
-- Compare key and BPM against independent annotations, with genre/class and ambiguity reporting.
-- Evaluate energy and cue usefulness through blinded, declared criteria; multiple useful outcomes may exist.
-- Keep any improved model explicitly separate from the vendor-compatibility model.
-- Run complete offline qualification on macOS arm64 and Linux arm64/x86_64, then publish only the exercised claims.
+## 5. Broader musical-quality evaluation
 
-Current execution has produced standalone native-style key, version-0 BPM and local energy candidates, a hash-bound fixed-PCM oracle, scheduling/cue transforms, and macOS/Linux arm64 runtime evidence. The next gates are remaining numerical/edge mismatches, actual app waveform/cue qualification, canonical request capture, authoritative model training, and the independent platform/holdout suites. The public classifier remains an explicitly experimental baseline; component matches do not promote it to a compatible detector.
+- Broaden annotated key/tempo evaluation beyond excerpts and the measured populations, with preregistered metrics and uncertainty.
+- Do not claim improvement over MIK 11 from the **68.0% versus 66.7%** result on 147 excerpts: that paired difference was not significant and did not establish equivalence.
+- Evaluate energy and cue usefulness against independently authored or blinded criteria. GiantSteps provides no ground truth for those outputs.
+- Keep musical-accuracy improvements distinct from vendor-compatibility behavior, and avoid tuning on reported benchmark errors.
+
+## 6. Any future public cutover
+
+If distribution is cleared, replace the historical experimental CLI with an explicitly versioned, qualified implementation and publish only the claims its source/model/platform snapshot supports. Update build instructions, model documentation, dependency notices and results together. Until then, this repository remains the early CLI plus an aggregate status report; no reconstruction code, new models or data are released.
